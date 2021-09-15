@@ -5,12 +5,49 @@
   <meta name="viewport" content="width=device-width">
   <title>1 major tracker with surrogate</title>
 
-  <script src="//doubleclick.net/instream/ad_status.js"></script>
+  <script>
+    // tamper with surrogate injection on iOS
+    if (window.location.hash === '#tamperios') {
+        function tamperTrackers () {
+            if (window.Trackers) {
+                console.log('Tampering with window.Trackers');
+                window.Trackers.prototype.getTrackerData = (url) => {
+                    console.log('intercepted getTrackerData', url);
+                    return null;
+                };
+            } else {
+                setTimeout(tamperTrackers, 1);
+            }
+        }
+        tamperTrackers();
+    }
+
+    function checkSurrogateStatus (stage) {
+        const target = document.getElementById('result');
+        const li = document.createElement('li');
+        if (!window.ga) {
+            li.innerText = `${stage}: ⚠️ nothing loaded`;
+        } else if (window.ga.remove.name === 'noop') {
+            li.innerText = `${stage}: ✅ surrogate injected`;
+        } else {
+            li.innerText = `${stage}: ❌ tracker script loaded`;
+        }
+        target.appendChild(li);
+    }
+
+    window.addEventListener('load', () => {
+        checkSurrogateStatus('load');
+        setTimeout(() => checkSurrogateStatus('load + tick'), 1);
+        setTimeout(() => checkSurrogateStatus('load + 100ms'), 100);
+    });
+  </script>
+  <script src="//google-analytics.com/analytics.js"></script>
 </head>
 <body>
 <p><a href="../index.html">[Home]</a></p>
 
-<p>1 major tracker with surrogate</p>
+<p >1 major tracker with surrogate</p>
+<ul id="result"></ul>
 
 </body>
 </html>
