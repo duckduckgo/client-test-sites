@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width">
+  <title>Audio playback</title>
+</head>
+<body>
+<p><a href="../index.html">[Home]</a></p>
+
+  <p>For testing fingerprinting, ensure that both sound the same and playing the copy several times also sounds the same but makes a different hash.</p>
+
+  <main>
+    <audio src="sample.mpga" id="sample" controls ></audio>
+    <br>
+    <button id="copy" disabled >Playback copy</button>
+    <dl id="stats">
+    </dl>
+  </main>
+
+  <style>
+      #canvas, #output {
+          width: 300px;
+          height: 300px;
+          border: 1px solid black;
+      }
+      #canvas {
+          border-color: red;
+      }
+      #stats {
+          white-space: pre;
+      }
+      textarea {
+          width: 600px;
+          height: 600px;
+      }
+  </style>
+  <script>
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      const OfflineAudioContext = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+
+      async function sha256 (str) {
+          const buf = await crypto.subtle.digest('SHA-256', new TextEncoder('utf-8').encode(str));
+          return Array.prototype.map.call(new Uint8Array(buf), x => (('00' + x.toString(16)).slice(-2))).join('');
+      }
+      
+      class Playback {
+          constructor (copyPlaybackElement, sampleElement, statsElement) {
+              this.copyPlaybackElement = copyPlaybackElement;
+              this.sampleElement = sampleElement;
+              this.statsElement = statsElement;
+              this.copyPlaybackElement.addEventListener('click', this);
+              this.sampleElement.addEventListener('durationchange', this, false);
+
+              this.copyCount = 0;
+              this.sampleRate = 44100;
+          }
+
+          async init () {
+              if (this.audioData) {
+                  return;
+              }
+              this.audioData = await this.getData();
+              this.outputHash("Original copy", this.audioData);
+          }
+
+          async outputHash (reason, data) {
+              const outputElement = document.createElement('div');
+              const dtElement = document.createElement('dt');
+              dtElement.textContent = reason;
+              outputElement.appendChild(dtElement);
+              const ddElement = document.createElement('dd');
+              ddElement.textContent = await sha256(data);
+              outputElement.appendChild(ddElement);
+              this.statsElement.appendChild(outputElement);
+          }
+
+          // Gets data from the sample element, fetching it and rendering it then passing it into an offline audioContext to get the channelData from it.
+          async getData () {
+              const audioCtx = new AudioContext();
+              const source = this.offlineAudioContext.createBufferSource();
+
+              const response = await fetch(this.sampleElement.src);
+              const buffer = await response.arrayBuffer();
+
+              return new Promise((resolve) => {
+                  audioCtx.decodeAudioData(
+                      buffer,
+                      async (decodedBuffer) => {
+                          source.buffer = decodedBuffer;
+                          source.connect(this.offlineAudioContext.destination);
+                          source.start();
+                          // Push source into an offline context
+                          // Get channel data
+                          const renderedBuffer = await this.offlineAudioContext.startRendering();
+                          resolve(renderedBuffer.getChannelData(0));
+                      },
+                      (e) => { console.log('Error with decoding audio data' + e.err); }
+                  );
+              });
+          }
+
+          async handlePlayToggle (e) {
+              const element = e.target;
+      
+              if (element.dataset.playing === 'false' || !element.dataset.playing) {
+                  this.copyPlaybackStarted();
+
+                  await this.init();
+
+                  let data = this.audioData;
+                  if (this.nextArray) {
+                      data = this.nextArray;
+                  }
+
+                  // Reconstruct a source as stopping it prevents playing again
+                  const audioCtx = new AudioContext();
+                  this.outputSource = audioCtx.createBufferSource();
+                  const buffer = audioCtx.createBuffer(1, data.length, audioCtx.sampleRate);
+                  // Check for Safari
+                  if (buffer.copyToChannel) {
+                      buffer.copyToChannel(data, 0, 0);
+                  } else {
+                      let out = buffer.getChannelData(0);
+                      for (let i in data) {
+                          out[i] = data[i];
+                      }
+                  }
+                  this.outputSource.buffer = buffer;
+                  this.outputSource.connect(audioCtx.destination);
+                  this.outputSource.start();
+                  this.outputSource.addEventListener('ended', this, false);
+
+                  // Copy over the existing data, in the fingerprint resistance case this should produce a different hash each time
+                  this.copyCount += 1;
+                  this.nextArray = buffer.getChannelData(0);
+                  this.outputHash("Copy " + this.copyCount, this.nextArray);
+              } else {
+                  this.outputSource.stop();
+                  this.copyPlaybackFinished();
+              }
+          }
+
+          copyPlaybackStarted() {
+              this.copyPlaybackElement.textContent = 'Pause playback copy';
+              this.copyPlaybackElement.dataset.playing = 'true';
+          }
+
+          copyPlaybackFinished() {
+              this.copyPlaybackElement.textContent = 'Playback copy';
+              this.copyPlaybackElement.dataset.playing = 'false';
+          }
+
+          async handleEvent (e) {
+              switch (e.type) {
+              case 'durationchange':
+                  this.offlineAudioContext = new OfflineAudioContext(1, this.sampleElement.duration * this.sampleRate, this.sampleRate);
+                  this.copyPlaybackElement.removeAttribute("disabled");
+                  break;
+              case 'click':
+                  this.handlePlayToggle(e);
+                  break;
+              case 'ended':
+                  this.copyPlaybackFinished();
+                  break;
+              }
+          }
+      }
+
+      // eslint-disable-next-line no-unused-vars
+      const instance = new Playback(
+          document.getElementById('copy'),
+          document.getElementById('sample'),
+          document.getElementById('stats')
+      );
+  </script>
+
+</body>
+</html>
