@@ -1006,6 +1006,25 @@ const tests = [
         }
     },
     {
+        id: 'audio',
+        category: 'full-fingerprint-expensive',
+        getValue: async () => {
+            // eslint-disable-next-line new-cap
+            const context = window.OfflineAudioContext ? new OfflineAudioContext(1, 44100, 44100) : new webkitOfflineAudioContext(1, 44100, 44100);
+            const renderedBuffer = await applyFpExampleDataToAudio(context);
+
+            const vals = [];
+            for (let i = 0; i < renderedBuffer.length; i++) {
+                vals.push(renderedBuffer.getChannelData(0)[i].toString());
+            }
+
+            const fingerprint = vals
+                .reduce(function (acc, val) { return acc + Math.abs(val); }, 0)
+                .toString();
+            return fingerprint;
+        }
+    },
+    {
         id: 'audio-copyFromChannel',
         category: 'full-fingerprints',
         getValue: async () => {
